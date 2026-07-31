@@ -5,6 +5,7 @@ import threading
 import os
 import json
 import sys
+import socket
 import requests
 import shutil
 import zipfile
@@ -31,22 +32,39 @@ def _session_request_with_timeout(self, method, url, *args, **kwargs):
 requests.get = _requests_get_with_timeout
 requests.sessions.Session.request = _session_request_with_timeout
 
+# Дополнительный "предохранитель": глобальный таймаут на сокеты. Без него
+# requests/urllib3 (в том числе внутри minecraft_launcher_lib, где мы не можем
+# подставить свой timeout) может ждать ответ сервера бесконечно.
+socket.setdefaulttimeout(60)
+
 # ---------- НАСТРОЙКИ ----------
+APP_NAME = "EndyLauncher"
 MANIFEST_URL = "https://raw.githubusercontent.com/mozalevart/client-em/refs/heads/main/manifest.json"
 SERVERS_URL = "https://github.com/mozalevart/client-em/raw/refs/heads/main/servers.dat"
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA", ""), ".endylauncher")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "launcher-config.json")
 DEFAULT_GAME_DIR = os.path.join(CONFIG_DIR, "game")
-LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "launcher.log")
+# Лог теперь всегда хранится в папке .endylauncher, а не в папке запуска игры,
+# и перезаписывается заново при каждом старте лаунчера.
+LOG_PATH = os.path.join(CONFIG_DIR, "launcher-log.txt")
 # ------------------------------
 
-# ---------- ЦВЕТОВАЯ СХЕМА ----------
-ACCENT = "#5B8CFF"
-ACCENT_HOVER = "#4472E0"
+# ---------- ЦВЕТОВАЯ СХЕМА: фиолетовый + латунно-золотой ----------
+VIOLET = "#8B5CF6"          # основной фирменный фиолетовый
+VIOLET_HOVER = "#7C3AED"
+GOLD = "#D4AF37"            # латунно-золотой — акцент для главных действий
+GOLD_HOVER = "#B8952E"
+GOLD_TEXT = "#2B1D06"       # тёмный текст поверх золотых кнопок (для контраста)
 DANGER = "#E05B5B"
 DANGER_HOVER = "#C24343"
 FONT_FAMILY = "Segoe UI"
 # ------------------------------
+
+# Ссылки не должны попадать в видимый лог — только общие фразы.
+_URL_PATTERN = re.compile(r"https?://\S+")
+
+def strip_urls(text):
+    return _URL_PATTERN.sub("[ссылка скрыта]", str(text))
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -131,7 +149,7 @@ class SettingsWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self.launcher = launcher
         self.parent = parent
-        self.title("Настройки")
+        self.title(f"{APP_NAME} — Настройки")
         self.geometry("420x460")
         self.resizable(False, False)
 
@@ -163,7 +181,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.ram_value_label = ctk.CTkLabel(
             header_ram, text=f"{int(self.ram_var.get())} ГБ",
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            text_color=ACCENT
+            text_color=GOLD
         )
         self.ram_value_label.pack(side="right")
 
@@ -174,9 +192,9 @@ class SettingsWindow(ctk.CTkToplevel):
             number_of_steps=max(1, self.max_ram - 1),
             variable=self.ram_var,
             command=self.update_ram_label,
-            progress_color=ACCENT,
-            button_color=ACCENT,
-            button_hover_color=ACCENT_HOVER,
+            progress_color=VIOLET,
+            button_color=GOLD,
+            button_hover_color=GOLD_HOVER,
         )
         self.ram_slider.pack(fill="x", padx=15, pady=(0, 5))
 
@@ -199,7 +217,7 @@ class SettingsWindow(ctk.CTkToplevel):
         frame_dir.pack(pady=(0, 15), padx=15, fill="x")
         ctk.CTkEntry(frame_dir, textvariable=self.dir_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(frame_dir, text="Обзор", width=80, command=self.browse_dir,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="right")
+                      fg_color=VIOLET, hover_color=VIOLET_HOVER).pack(side="right")
 
         # ---------- Опасная зона ----------
         frame_danger = ctk.CTkFrame(self, corner_radius=12)
@@ -216,7 +234,7 @@ class SettingsWindow(ctk.CTkToplevel):
         # ---------- Сохранить ----------
         ctk.CTkButton(
             self, text="Сохранить настройки", command=self.save_settings,
-            height=42, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            height=42, fg_color=GOLD, hover_color=GOLD_HOVER, text_color=GOLD_TEXT,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold")
         ).pack(pady=20, padx=25, fill="x")
 
@@ -274,7 +292,7 @@ class SettingsWindow(ctk.CTkToplevel):
 class Launcher(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Лаунчер")
+        self.title(APP_NAME)
         self.geometry("520x680")
         self.resizable(False, False)
 
@@ -287,6 +305,13 @@ class Launcher(ctk.CTk):
         self.nickname_var = ctk.StringVar(value=self.config.get("nickname", ""))
         self.password_var = ctk.StringVar(value=self.config.get("password", ""))
         self.log_file_path = LOG_PATH
+
+        # Лог перезаписывается заново при каждом запуске лаунчера.
+        try:
+            with open(self.log_file_path, "w", encoding="utf-8") as f:
+                f.write(f"=== {APP_NAME} — сессия от {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+        except Exception:
+            pass
 
         total_ram = get_total_ram_gb()
         self.max_ram_gb = max(1, int(total_ram * 0.75))
@@ -313,12 +338,21 @@ class Launcher(ctk.CTk):
         self.log(f"Выделено памяти: {self.ram_var.get()} ГБ (максимум {self.max_ram_gb} ГБ)")
 
     def create_widgets(self):
+        # Двухцветное название: фиолетовый + латунно-золотой
+        frame_title = ctk.CTkFrame(self, fg_color="transparent")
+        frame_title.pack(pady=(22, 4))
         ctk.CTkLabel(
-            self, text="ЛАУНЧЕР",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=26, weight="bold")
-        ).pack(pady=(20, 5))
+            frame_title, text="Endy",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
+            text_color=VIOLET
+        ).pack(side="left")
+        ctk.CTkLabel(
+            frame_title, text="Launcher",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
+            text_color=GOLD
+        ).pack(side="left")
 
-        ctk.CTkFrame(self, height=2, fg_color=ACCENT).pack(fill="x", padx=30, pady=(0, 15))
+        ctk.CTkFrame(self, height=2, fg_color=GOLD).pack(fill="x", padx=30, pady=(0, 15))
 
         card = ctk.CTkFrame(self, corner_radius=14)
         card.pack(padx=30, fill="x")
@@ -326,17 +360,28 @@ class Launcher(ctk.CTk):
         ctk.CTkLabel(card, text="Никнейм", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(18, 4))
         ctk.CTkEntry(card, textvariable=self.nickname_var, height=36).pack(padx=20, fill="x")
 
-        ctk.CTkLabel(card, text="Пароль (опционально)", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(14, 4))
+        ctk.CTkLabel(card, text="Пароль", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(14, 4))
         ctk.CTkEntry(card, textvariable=self.password_var, show="*", height=36).pack(padx=20, fill="x")
+
+        ctk.CTkLabel(
+            card,
+            text=("Пароль проверяется только при входе на сервер. Играете здесь впервые — "
+                  "просто придумайте любой пароль и запомните его: в следующий раз вводите тот же, "
+                  "чтобы никто другой не смог зайти под вашим ником."),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color="gray60",
+            justify="left",
+            wraplength=440
+        ).pack(anchor="w", padx=20, pady=(6, 0))
 
         ctk.CTkLabel(card, text="Папка с игрой", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(14, 4))
         frame_dir = ctk.CTkFrame(card, fg_color="transparent")
         frame_dir.pack(pady=(0, 18), padx=20, fill="x")
         ctk.CTkEntry(frame_dir, textvariable=self.dir_var, height=36).pack(side="left", fill="x", expand=True)
         ctk.CTkButton(frame_dir, text="Обзор", width=80, height=36, command=self.choose_directory,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="right", padx=(10, 0))
+                      fg_color=VIOLET, hover_color=VIOLET_HOVER).pack(side="right", padx=(10, 0))
 
-        self.progress = ctk.CTkProgressBar(self, width=420, progress_color=ACCENT)
+        self.progress = ctk.CTkProgressBar(self, width=420, progress_color=GOLD)
         self.progress.pack(pady=(20, 5), padx=30)
         self.progress.set(0)
 
@@ -345,18 +390,13 @@ class Launcher(ctk.CTk):
         self.launch_btn = ctk.CTkButton(
             frame_buttons, text="ИГРАТЬ", command=self.on_launch,
             height=44, font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            width=140, fg_color=ACCENT, hover_color=ACCENT_HOVER, corner_radius=10
+            width=180, fg_color=GOLD, hover_color=GOLD_HOVER, text_color=GOLD_TEXT, corner_radius=10
         )
         self.launch_btn.pack(side="left", padx=5)
         ctk.CTkButton(
             frame_buttons, text="Настройки", command=self.open_settings,
             height=44, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            width=110, corner_radius=10
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            frame_buttons, text="Копировать лог", command=self.copy_log,
-            height=44, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            width=130, corner_radius=10
+            width=140, fg_color=VIOLET, hover_color=VIOLET_HOVER, corner_radius=10
         ).pack(side="right", padx=5)
 
         ctk.CTkLabel(self, text="Лог", font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), text_color="gray60").pack(anchor="w", padx=32)
@@ -365,7 +405,9 @@ class Launcher(ctk.CTk):
         self.log_box.pack(pady=(4, 15), padx=30, fill="both")
 
     def log(self, message):
-        timestamped = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
+        # Ссылки не должны попадать в видимый лог — заменяем их на общую фразу.
+        safe_message = strip_urls(message)
+        timestamped = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {safe_message}"
         self.log_box.configure(state="normal")
         self.log_box.insert("end", timestamped + "\n")
         self.log_box.see("end")
@@ -378,10 +420,6 @@ class Launcher(ctk.CTk):
                 f.write(timestamped + "\n")
         except Exception:
             pass
-
-    def copy_log(self):
-        self.clipboard_clear()
-        self.clipboard_append(self.log_box.get("1.0", "end-1c"))
 
     def load_config(self):
         if os.path.exists(CONFIG_PATH):
@@ -405,11 +443,10 @@ class Launcher(ctk.CTk):
         if password:
             with open(password_file, "w", encoding="utf-8") as f:
                 f.write(password)
-            self.log("Пароль сохранён в .nl_password в папке игры")
+            self.log("Пароль сохранён.")
         else:
             if os.path.exists(password_file):
                 os.remove(password_file)
-                self.log("Файл .nl_password удалён (пароль пуст)")
 
     def choose_directory(self):
         dir_selected = filedialog.askdirectory(title="Выберите папку для установки игры")
@@ -430,6 +467,11 @@ class Launcher(ctk.CTk):
         nickname = self.nickname_var.get().strip()
         if not nickname:
             messagebox.showerror("Ошибка", "Введите никнейм!")
+            return
+
+        password = self.password_var.get().strip()
+        if not password:
+            messagebox.showerror("Ошибка", "Введите пароль! Если играете впервые — просто придумайте любой и запомните его.")
             return
 
         directory = self.dir_var.get().strip()
@@ -506,9 +548,9 @@ class Launcher(ctk.CTk):
         elif component_type == "config":
             pass
 
-    def download_and_extract_archive(self, url, target_dir, temp_name):
+    def download_and_extract_archive(self, url, target_dir, temp_name, component_label="файл"):
         zip_path = os.path.join(target_dir, temp_name)
-        self.log(f"Скачивание {url}...")
+        self.log(f"Скачивание: {component_label}...")
         try:
             response = requests.get(url, stream=True, timeout=120)
             response.raise_for_status()
@@ -531,7 +573,7 @@ class Launcher(ctk.CTk):
             self.progress.set(0)
             self.log("Распаковка завершена.")
         except Exception as e:
-            self.log(f"Ошибка при скачивании/распаковке: {e}")
+            self.log(f"Ошибка при скачивании/распаковке {component_label}: {e}")
             if os.path.exists(zip_path):
                 os.remove(zip_path)
             raise
@@ -548,7 +590,7 @@ class Launcher(ctk.CTk):
                         f.write(chunk)
             self.log("Список серверов обновлён.")
         except Exception as e:
-            self.log(f"Не удалось скачать servers.dat: {e}")
+            self.log(f"Не удалось обновить список серверов: {e}")
 
     def write_default_language(self, directory):
         """Создаёт options.txt с русским языком, но только если файла ещё нет —
@@ -559,7 +601,7 @@ class Launcher(ctk.CTk):
             try:
                 with open(options_path, "w", encoding="utf-8") as f:
                     f.write("lang:ru_ru\n")
-                self.log("Создан options.txt с языком по умолчанию: ru_ru")
+                self.log("Установлен язык по умолчанию: русский")
             except Exception as e:
                 self.log(f"Не удалось создать options.txt: {e}")
 
@@ -604,15 +646,15 @@ class Launcher(ctk.CTk):
                         with open(core_version_file, "r") as f:
                             current_core = f.read().strip()
                     if current_core != version:
-                        self.log(f"Обновление core с {current_core} до {version}")
+                        self.log(f"Обновление ядра с {current_core} до {version}")
                         if clean:
                             self.clean_component(directory, "core", mc_version)
-                        self.download_and_extract_archive(url, directory, "core_temp.zip")
+                        self.download_and_extract_archive(url, directory, "core_temp.zip", "core")
                         with open(core_version_file, "w") as f:
                             f.write(version)
-                        self.log("Core установлен.")
+                        self.log("Ядро установлено.")
                     else:
-                        self.log("Core актуален.")
+                        self.log("Ядро актуально.")
 
             # Русский язык по умолчанию при первой установке
             self.write_default_language(directory)
@@ -633,7 +675,7 @@ class Launcher(ctk.CTk):
                         self.log(f"Обновление модов с {current_mods} до {version}")
                         if clean:
                             self.clean_component(directory, "mods")
-                        self.download_and_extract_archive(url, directory, "mods_temp.zip")
+                        self.download_and_extract_archive(url, directory, "mods_temp.zip", "mods")
                         with open(mods_version_file, "w") as f:
                             f.write(version)
                         self.log("Моды установлены.")
@@ -653,7 +695,7 @@ class Launcher(ctk.CTk):
                             current_config = f.read().strip()
                     if current_config != version:
                         self.log(f"Обновление конфигов с {current_config} до {version}")
-                        self.download_and_extract_archive(url, directory, "config_temp.zip")
+                        self.download_and_extract_archive(url, directory, "config_temp.zip", "config")
                         with open(config_version_file, "w") as f:
                             f.write(version)
                         self.log("Конфиги обновлены.")
@@ -700,13 +742,13 @@ class Launcher(ctk.CTk):
                 options["quickPlayMultiplayer"] = f"{server_ip}:{server_port}"
                 options["server"] = server_ip
                 options["port"] = str(server_port)
-                self.log(f"Автоподключение к серверу: {server_ip}:{server_port}")
+                self.log("Автоподключение к серверу настроено.")
             else:
-                self.log("QuickPlay не настроен: манифест не содержит поле server или ip.")
+                self.log("Автоподключение к серверу не настроено (нет данных в манифесте).")
 
             minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(
                 neoforge_id, directory, options
-            ) 
+            )
 
             args_file = os.path.join(directory, "temp_args.txt")
             with open(args_file, "w", encoding="utf-8") as f:
@@ -717,7 +759,7 @@ class Launcher(ctk.CTk):
             else:
                 cmd = ["java", f"@{args_file}"]
 
-            self.log("Запуск: " + " ".join(cmd))
+            self.log("Запуск игры...")
             subprocess.Popen(cmd, cwd=directory, shell=True)
             self.log("Игра запущена! Можете закрыть лаунчер.")
 
