@@ -342,6 +342,10 @@ class SettingsWindow(ctk.CTkToplevel):
                 if os.path.exists(ver_path):
                     os.remove(ver_path)
                     self.launcher.log(f"Удалён файл версии: {ver_file}")
+            manifest_path = self.launcher.get_installation_manifest_path(directory)
+            if os.path.exists(manifest_path):
+                os.remove(manifest_path)
+                self.launcher.log("Удалён манифест установленной сборки.")
             self.launcher.log("Переустановка завершена. При следующем запуске игра будет переустановлена.")
             messagebox.showinfo("Переустановка", "Все файлы игры удалены. Нажмите 'Играть' для полной переустановки.")
 
@@ -676,6 +680,113 @@ class Launcher(ctk.CTk):
         elif component_type == "config":
             pass
 
+    def get_installation_manifest_path(self, directory):
+        safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', directory).strip("._") or "default"
+        return os.path.join(CONFIG_DIR, f"installation-manifest-{safe_name}.json")
+
+    def load_installation_manifest(self, directory):
+        path = self.get_installation_manifest_path(directory)
+        if not os.path.exists(path):
+            return {"directory": directory, "components": {}}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data.setdefault("components", {})
+            data["directory"] = directory
+            return data
+        except Exception as e:
+            self.log(f"Не удалось прочитать манифест установки: {e}")
+            return {"directory": directory, "components": {}}
+
+    def save_installation_manifest(self, directory, manifest):
+        path = self.get_installation_manifest_path(directory)
+        try:
+            Path(CONFIG_DIR).mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.log(f"Не удалось сохранить манифест установки: {e}")
+
+    def collect_installation_problems(self, directory, manifest):
+        total_files = 0
+        problems = []
+        for component_name, entry in manifest.get("components", {}).items():
+            for file_entry in entry.get("files", []):
+                total_files += 1
+                rel_path = file_entry.get("path")
+                if not rel_path:
+                    continue
+                full_path = os.path.join(directory, rel_path)
+                if not os.path.exists(full_path):
+                    problems.append(f"{component_name}: отсутствует {rel_path}")
+                    continue
+                if not os.path.isfile(full_path):
+                    problems.append(f"{component_name}: не файл {rel_path}")
+                    continue
+                actual_size = os.path.getsize(full_path)
+                expected_size = file_entry.get("size")
+                if expected_size is not None and actual_size != expected_size:
+                    problems.append(f"{component_name}: размер не совпадает {rel_path} ({actual_size} != {expected_size})")
+        return problems, total_files
+
+    def validate_installation_manifest(self, directory, manifest):
+        problems, total_files = self.collect_installation_problems(directory, manifest)
+
+        if problems:
+            self.log(f"Проверка сборки не пройдена: {len(problems)} проблем по {total_files} файлам.")
+            for problem in problems[:10]:
+                self.log(f"  - {problem}")
+            return False, problems
+
+        self.log(f"Проверка сборки пройдена: {total_files} файлов подтверждены.")
+        return True, problems
+
+    def recover_missing_files(self, directory, manifest_state, remote_components, mc_version):
+        recovered_any = False
+        for component_name in list(manifest_state.get("components", {}).keys()):
+            if component_name == "minecraft":
+                self.log("Восстановление Minecraft...")
+                self.clean_component(directory, "minecraft")
+                minecraft_launcher_lib.install.install_minecraft_version(mc_version, directory)
+                manifest_state["components"]["minecraft"] = {
+                    "version": mc_version,
+                    "files": self.collect_files_from_directory(directory, ["versions", "libraries"]),
+                }
+                recovered_any = True
+                continue
+
+            remote_component = remote_components.get(component_name, {})
+            url = remote_component.get("url")
+            version = remote_component.get("version")
+            if not url or not version:
+                continue
+
+            self.log(f"Восстановление компонента {component_name}...")
+            component_files = self.download_and_extract_archive(url, directory, f"{component_name}_temp.zip", component_name)
+            manifest_state["components"][component_name] = {"version": version, "files": component_files}
+            recovered_any = True
+
+        if recovered_any:
+            self.log("Восстановление завершено.")
+        return recovered_any
+
+    def collect_files_from_directory(self, directory, root_dirs):
+        files = []
+        for root_dir in root_dirs:
+            abs_root = os.path.join(directory, root_dir)
+            if not os.path.exists(abs_root):
+                continue
+            for current_root, _, filenames in os.walk(abs_root):
+                for filename in filenames:
+                    full_path = os.path.join(current_root, filename)
+                    try:
+                        size = os.path.getsize(full_path)
+                    except OSError:
+                        continue
+                    rel_path = os.path.relpath(full_path, directory).replace("\\", "/")
+                    files.append({"path": rel_path, "size": size})
+        return files
+
     def download_and_extract_archive(self, url, target_dir, temp_name, component_label="файл"):
         zip_path = os.path.join(target_dir, temp_name)
         self.log(f"Скачивание: {component_label}...")
@@ -695,11 +806,19 @@ class Launcher(ctk.CTk):
                             self.update_idletasks()
             self.progress.set(1.0)
             self.log("Скачивание завершено. Распаковка...")
+            manifest_files = []
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                for info in zip_ref.infolist():
+                    if info.is_dir():
+                        continue
+                    rel_path = info.filename.replace("\\", "/").lstrip("/")
+                    if rel_path:
+                        manifest_files.append({"path": rel_path, "size": info.file_size})
                 zip_ref.extractall(target_dir)
             os.remove(zip_path)
             self.progress.set(0)
             self.log("Распаковка завершена.")
+            return manifest_files
         except Exception as e:
             self.log(f"Ошибка при скачивании/распаковке {component_label}: {e}")
             if os.path.exists(zip_path):
@@ -745,6 +864,10 @@ class Launcher(ctk.CTk):
             mc_version = components.get("minecraft", {}).get("version", "1.21.1")
             self.log(f"Версия Minecraft: {mc_version}")
 
+            manifest_state = self.load_installation_manifest(directory)
+            manifest_state["directory"] = directory
+            manifest_state.setdefault("components", {})
+
             # Minecraft
             mc_version_file = os.path.join(directory, "minecraft_version.txt")
             current_mc = None
@@ -760,6 +883,10 @@ class Launcher(ctk.CTk):
                 self.log(f"Minecraft {mc_version} установлен.")
             else:
                 self.log("Minecraft актуален.")
+            manifest_state["components"]["minecraft"] = {
+                "version": mc_version,
+                "files": self.collect_files_from_directory(directory, ["versions", "libraries"]),
+            }
 
             # Core
             if "core" in components:
@@ -777,9 +904,10 @@ class Launcher(ctk.CTk):
                         self.log(f"Обновление ядра с {current_core} до {version}")
                         if clean:
                             self.clean_component(directory, "core", mc_version)
-                        self.download_and_extract_archive(url, directory, "core_temp.zip", "core")
+                        core_files = self.download_and_extract_archive(url, directory, "core_temp.zip", "core")
                         with open(core_version_file, "w") as f:
                             f.write(version)
+                        manifest_state["components"]["core"] = {"version": version, "files": core_files}
                         self.log("Ядро установлено.")
                     else:
                         self.log("Ядро актуально.")
@@ -803,9 +931,10 @@ class Launcher(ctk.CTk):
                         self.log(f"Обновление модов с {current_mods} до {version}")
                         if clean:
                             self.clean_component(directory, "mods")
-                        self.download_and_extract_archive(url, directory, "mods_temp.zip", "mods")
+                        mods_files = self.download_and_extract_archive(url, directory, "mods_temp.zip", "mods")
                         with open(mods_version_file, "w") as f:
                             f.write(version)
+                        manifest_state["components"]["mods"] = {"version": version, "files": mods_files}
                         self.log("Моды установлены.")
                     else:
                         self.log("Моды актуальны.")
@@ -823,9 +952,10 @@ class Launcher(ctk.CTk):
                             current_config = f.read().strip()
                     if current_config != version:
                         self.log(f"Обновление конфигов с {current_config} до {version}")
-                        self.download_and_extract_archive(url, directory, "config_temp.zip", "config")
+                        config_files = self.download_and_extract_archive(url, directory, "config_temp.zip", "config")
                         with open(config_version_file, "w") as f:
                             f.write(version)
+                        manifest_state["components"]["config"] = {"version": version, "files": config_files}
                         self.log("Конфиги обновлены.")
                     else:
                         self.log("Конфиги актуальны.")
@@ -840,6 +970,27 @@ class Launcher(ctk.CTk):
                         break
             if not neoforge_id:
                 raise Exception("Не найдена версия NeoForge в папке versions")
+
+            self.save_installation_manifest(directory, manifest_state)
+            is_valid, problems = self.validate_installation_manifest(directory, manifest_state)
+            if not is_valid:
+                self.log("Обнаружены проблемы целостности сборки. Предлагаю восстановить недостающие файлы автоматически.")
+                if messagebox.askyesno(
+                    "Восстановление сборки",
+                    "Обнаружены недостающие или изменённые обязательные файлы сборки.\n"
+                    "Восстановить их автоматически из сетевого архива?"
+                ):
+                    self.log("Начинаю автоматическое восстановление...")
+                    recovered = self.recover_missing_files(directory, manifest_state, components, mc_version)
+                    if recovered:
+                        self.save_installation_manifest(directory, manifest_state)
+                        is_valid, problems = self.validate_installation_manifest(directory, manifest_state)
+                        if not is_valid:
+                            self.log("Автоматическое восстановление не помогло для всех файлов. Продолжаю запуск с предупреждением.")
+                    else:
+                        self.log("Автоматическое восстановление не потребовалось или недоступно для текущих компонентов.")
+                else:
+                    self.log("Пользователь отклонил автоматическое восстановление. Продолжаю запуск с предупреждением.")
 
             # Проверка Java — теперь ПОСЛЕ установки core, когда java-runtime-delta
             # уже должна быть на месте (раньше проверка шла до скачивания core.zip,
