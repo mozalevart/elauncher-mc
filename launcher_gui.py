@@ -275,25 +275,36 @@ class SettingsWindow(ctk.CTkToplevel):
             frame_danger,
             text="🗑  Переустановить игру",
             command=self.reinstall,
-            fg_color=DANGER,
-            hover_color=DANGER_HOVER,
+            fg_color="#B33636",
+            hover_color="#922C2C",
+            text_color="#FDF2F2",
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             height=40,
+            border_width=1,
+            border_color="#7A1D1D",
         )
-        btn_reinstall.pack(pady=14, padx=16, fill="x")
-        ToolTip(btn_reinstall, "Удаляет все файлы игры (моды, ядро, конфиги)\nи переустанавливает заново при следующем запуске.")
+        btn_reinstall.pack(pady=(14, 6), padx=16, fill="x")
+        ctk.CTkLabel(
+            frame_danger,
+            text="Удаляет моды, ядро и конфиги и запускает полную переустановку при следующем запуске.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=TEXT_MUTED,
+            justify="left",
+            wraplength=360,
+        ).pack(padx=16, pady=(0, 14), anchor="w")
 
         ctk.CTkButton(
             self,
-            text="Сохранить настройки",
+            text="Сохранить",
             command=self.save_settings,
-            height=44,
+            height=34,
             fg_color=GOLD,
             hover_color=GOLD_HOVER,
             text_color=GOLD_TEXT,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
-            corner_radius=12,
-        ).pack(pady=(14, 20), padx=22, fill="x")
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            corner_radius=10,
+            width=130,
+        ).pack(anchor="e", padx=22, pady=(8, 12))
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
