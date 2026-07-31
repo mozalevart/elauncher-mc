@@ -49,23 +49,23 @@ DEFAULT_GAME_DIR = os.path.join(CONFIG_DIR, "game")
 LOG_PATH = os.path.join(CONFIG_DIR, "launcher-log.txt")
 # ------------------------------
 
-# ---------- ЦВЕТОВАЯ СХЕМА: современный тёмный интерфейс ----------
-BG = "#060816"
-BG_PANEL = "#0F172A"
+# ---------- ЦВЕТОВАЯ СХЕМА: тёмная магия + техно-акценты ----------
+BG = "#050816"
+BG_PANEL = "#0A1228"
 BG_CARD = "#111C33"
 BG_CARD_ALT = "#16243F"
-BORDER = "#24324E"
-TEXT = "#F8FAFC"
-TEXT_MUTED = "#94A3B8"
-VIOLET = "#8B5CF6"
+BORDER = "#2E3C5A"
+TEXT = "#F7F3FF"
+TEXT_MUTED = "#9AA8C7"
+VIOLET = "#9B5CFF"
 VIOLET_HOVER = "#7C3AED"
-VIOLET_SOFT = "#24163F"
-GOLD = "#F2C94C"
-GOLD_HOVER = "#E0B33B"
-GOLD_TEXT = "#1F1400"
-DANGER = "#F87171"
-DANGER_HOVER = "#EF4444"
-SUCCESS = "#34D399"
+VIOLET_SOFT = "#23153E"
+GOLD = "#F6C96B"
+GOLD_HOVER = "#E0A83A"
+GOLD_TEXT = "#231400"
+DANGER = "#FF6B6B"
+DANGER_HOVER = "#E85454"
+SUCCESS = "#56E8B2"
 FONT_FAMILY = "Segoe UI"
 # ------------------------------
 
@@ -80,7 +80,7 @@ ctk.set_default_color_theme("dark-blue")
 
 
 def make_panel(parent, **kwargs):
-    kwargs.setdefault("corner_radius", 18)
+    kwargs.setdefault("corner_radius", 20)
     kwargs.setdefault("fg_color", BG_CARD)
     kwargs.setdefault("border_width", 1)
     kwargs.setdefault("border_color", BORDER)
@@ -179,6 +179,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.dir_var = StringVar(value=launcher.dir_var.get())
 
         header = make_panel(self, height=110)
+        header.configure(fg_color=BG_CARD_ALT)
         header.pack(padx=22, pady=(20, 14), fill="x")
         ctk.CTkLabel(
             header,
@@ -380,10 +381,21 @@ class Launcher(ctk.CTk):
         self.log(f"Выделено памяти: {self.ram_var.get()} ГБ (максимум {self.max_ram_gb} ГБ)")
 
     def create_widgets(self):
-        hero = make_panel(self, height=140)
-        hero.pack(padx=24, pady=(24, 16), fill="x")
+        hero_wrapper = ctk.CTkFrame(
+            self,
+            fg_color="transparent",
+            corner_radius=24,
+            border_width=2,
+            border_color="#3B1E5F",
+        )
+        hero_wrapper.pack(padx=24, pady=(24, 16), fill="x")
+
+        hero = make_panel(hero_wrapper, height=150)
+        hero.configure(fg_color=BG_CARD_ALT, border_color="#A66CFF")
+        hero.pack(padx=2, pady=2, fill="x")
+
         hero_top = ctk.CTkFrame(hero, fg_color="transparent")
-        hero_top.pack(fill="x", padx=20, pady=(18, 8))
+        hero_top.pack(fill="x", padx=20, pady=(16, 6))
         ctk.CTkLabel(
             hero_top,
             text="Endy",
@@ -396,12 +408,20 @@ class Launcher(ctk.CTk):
             font=ctk.CTkFont(family=FONT_FAMILY, size=30, weight="bold"),
             text_color=GOLD,
         ).pack(side="left", padx=(4, 0))
+
+        badge = ctk.CTkFrame(hero_top, fg_color=VIOLET_SOFT, corner_radius=999, border_width=1, border_color=GOLD)
+        badge.pack(side="right")
         ctk.CTkLabel(
-            hero_top,
+            badge,
             text="⚡ Быстрый старт",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=SUCCESS,
-        ).pack(side="right")
+            text_color=GOLD,
+            padx=10,
+            pady=4,
+        ).pack()
+
+        ctk.CTkFrame(hero, height=2, fg_color=GOLD, corner_radius=999).pack(fill="x", padx=20, pady=(2, 6))
+        ctk.CTkFrame(hero, height=1, fg_color=VIOLET, corner_radius=999).pack(fill="x", padx=20, pady=(0, 6))
         ctk.CTkLabel(
             hero,
             text="Современный запуск Minecraft с автоматической установкой, серверным входом и аккуратно оформленным интерфейсом.",
@@ -461,7 +481,9 @@ class Launcher(ctk.CTk):
             fg_color=GOLD,
             hover_color=GOLD_HOVER,
             text_color=GOLD_TEXT,
-            corner_radius=12,
+            corner_radius=14,
+            border_width=2,
+            border_color="#FCE6A0",
         )
         self.launch_btn.pack(side="left")
         ctk.CTkButton(
@@ -473,22 +495,23 @@ class Launcher(ctk.CTk):
             width=145,
             fg_color=VIOLET,
             hover_color=VIOLET_HOVER,
-            corner_radius=12,
+            corner_radius=14,
+            border_width=2,
+            border_color="#C5A1FF",
         ).pack(side="right")
 
-        ctk.CTkLabel(self, text="Лог", font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), text_color=TEXT_MUTED).pack(anchor="w", padx=28, pady=(10, 4))
         self.log_box = ctk.CTkTextbox(
             self,
             height=52,
             state="normal",
-            corner_radius=12,
+            corner_radius=16,
             fg_color=BG_PANEL,
             border_color=BORDER,
             border_width=1,
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=TEXT,
         )
-        self.log_box.pack(pady=(4, 18), padx=24, fill="x")
+        self.log_box.pack(pady=(10, 18), padx=24, fill="x")
         self.log_box.insert("end", "Ожидание запуска...")
         self.log_box.configure(state="disabled")
 
