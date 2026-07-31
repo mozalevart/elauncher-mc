@@ -86,6 +86,21 @@ def make_panel(parent, **kwargs):
     kwargs.setdefault("border_color", BORDER)
     return ctk.CTkFrame(parent, **kwargs)
 
+
+def make_glow_button(parent, text, command, *, fg_color, hover_color, text_color, width=None, height=46):
+    return ctk.CTkButton(
+        parent,
+        text=text,
+        command=command,
+        height=height,
+        width=width,
+        fg_color=fg_color,
+        hover_color=hover_color,
+        text_color=text_color,
+        corner_radius=16,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+    )
+
 # ---- Вспомогательная функция для получения общего ОЗУ ----
 def get_total_ram_gb():
     try:
@@ -386,12 +401,12 @@ class Launcher(ctk.CTk):
             fg_color="transparent",
             corner_radius=24,
             border_width=2,
-            border_color="#3B1E5F",
+            border_color="#4A2A7A",
         )
         hero_wrapper.pack(padx=24, pady=(24, 16), fill="x")
 
         hero = make_panel(hero_wrapper, height=150)
-        hero.configure(fg_color=BG_CARD_ALT, border_color="#A66CFF")
+        hero.configure(fg_color=BG_CARD_ALT, border_color="#B987FF")
         hero.pack(padx=2, pady=2, fill="x")
 
         hero_top = ctk.CTkFrame(hero, fg_color="transparent")
@@ -409,7 +424,7 @@ class Launcher(ctk.CTk):
             text_color=GOLD,
         ).pack(side="left", padx=(4, 0))
 
-        badge = ctk.CTkFrame(hero_top, fg_color=VIOLET_SOFT, corner_radius=999, border_width=1, border_color=GOLD)
+        badge = ctk.CTkFrame(hero_top, fg_color=VIOLET_SOFT, corner_radius=999, border_width=1, border_color="#F2D27A")
         badge.pack(side="right")
         ctk.CTkLabel(
             badge,
@@ -424,7 +439,7 @@ class Launcher(ctk.CTk):
         ctk.CTkFrame(hero, height=1, fg_color=VIOLET, corner_radius=999).pack(fill="x", padx=20, pady=(0, 6))
         ctk.CTkLabel(
             hero,
-            text="Современный запуск Minecraft с автоматической установкой, серверным входом и аккуратно оформленным интерфейсом.",
+            text="Лаунчер для запуска и обновления сборки с минимальными лишними действиями.",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=TEXT_MUTED,
             justify="left",
@@ -471,19 +486,14 @@ class Launcher(ctk.CTk):
 
         frame_buttons = ctk.CTkFrame(self, fg_color="transparent")
         frame_buttons.pack(pady=12, fill="x", padx=24)
-        self.launch_btn = ctk.CTkButton(
+        self.launch_btn = make_glow_button(
             frame_buttons,
-            text="ИГРАТЬ",
-            command=self.on_launch,
-            height=46,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
-            width=185,
+            "ИГРАТЬ",
+            self.on_launch,
             fg_color=GOLD,
             hover_color=GOLD_HOVER,
             text_color=GOLD_TEXT,
-            corner_radius=14,
-            border_width=2,
-            border_color="#FCE6A0",
+            width=185,
         )
         self.launch_btn.pack(side="left")
         ctk.CTkButton(
@@ -491,13 +501,11 @@ class Launcher(ctk.CTk):
             text="Настройки",
             command=self.open_settings,
             height=46,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             width=145,
             fg_color=VIOLET,
             hover_color=VIOLET_HOVER,
-            corner_radius=14,
-            border_width=2,
-            border_color="#C5A1FF",
+            corner_radius=16,
         ).pack(side="right")
 
         self.log_box = ctk.CTkTextbox(
