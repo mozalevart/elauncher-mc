@@ -49,14 +49,23 @@ DEFAULT_GAME_DIR = os.path.join(CONFIG_DIR, "game")
 LOG_PATH = os.path.join(CONFIG_DIR, "launcher-log.txt")
 # ------------------------------
 
-# ---------- ЦВЕТОВАЯ СХЕМА: фиолетовый + латунно-золотой ----------
-VIOLET = "#8B5CF6"          # основной фирменный фиолетовый
+# ---------- ЦВЕТОВАЯ СХЕМА: современный тёмный интерфейс ----------
+BG = "#060816"
+BG_PANEL = "#0F172A"
+BG_CARD = "#111C33"
+BG_CARD_ALT = "#16243F"
+BORDER = "#24324E"
+TEXT = "#F8FAFC"
+TEXT_MUTED = "#94A3B8"
+VIOLET = "#8B5CF6"
 VIOLET_HOVER = "#7C3AED"
-GOLD = "#D4AF37"            # латунно-золотой — акцент для главных действий
-GOLD_HOVER = "#B8952E"
-GOLD_TEXT = "#2B1D06"       # тёмный текст поверх золотых кнопок (для контраста)
-DANGER = "#E05B5B"
-DANGER_HOVER = "#C24343"
+VIOLET_SOFT = "#24163F"
+GOLD = "#F2C94C"
+GOLD_HOVER = "#E0B33B"
+GOLD_TEXT = "#1F1400"
+DANGER = "#F87171"
+DANGER_HOVER = "#EF4444"
+SUCCESS = "#34D399"
 FONT_FAMILY = "Segoe UI"
 # ------------------------------
 
@@ -66,8 +75,16 @@ _URL_PATTERN = re.compile(r"https?://\S+")
 def strip_urls(text):
     return _URL_PATTERN.sub("[ссылка скрыта]", str(text))
 
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+
+
+def make_panel(parent, **kwargs):
+    kwargs.setdefault("corner_radius", 18)
+    kwargs.setdefault("fg_color", BG_CARD)
+    kwargs.setdefault("border_width", 1)
+    kwargs.setdefault("border_color", BORDER)
+    return ctk.CTkFrame(parent, **kwargs)
 
 # ---- Вспомогательная функция для получения общего ОЗУ ----
 def get_total_ram_gb():
@@ -150,8 +167,9 @@ class SettingsWindow(ctk.CTkToplevel):
         self.launcher = launcher
         self.parent = parent
         self.title(f"{APP_NAME} — Настройки")
-        self.geometry("420x460")
+        self.geometry("470x540")
         self.resizable(False, False)
+        self.configure(fg_color=BG)
 
         self.transient(parent)
         self.grab_set()
@@ -160,28 +178,37 @@ class SettingsWindow(ctk.CTkToplevel):
         self.ram_var = IntVar(value=int(launcher.ram_var.get()))
         self.dir_var = StringVar(value=launcher.dir_var.get())
 
+        header = make_panel(self, height=110)
+        header.pack(padx=22, pady=(20, 14), fill="x")
         ctk.CTkLabel(
-            self, text="⚙  Настройки лаунчера",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold")
-        ).pack(pady=(20, 15))
+            header,
+            text="⚙ Настройки лаунчера",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
+            text_color=TEXT,
+        ).pack(anchor="w", padx=18, pady=(18, 4))
+        ctk.CTkLabel(
+            header,
+            text="Настройте память, папку установки и базовые параметры запуска",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=TEXT_MUTED,
+            wraplength=400,
+        ).pack(anchor="w", padx=18, pady=(0, 16))
 
-        # ---------- Блок RAM ----------
-        frame_ram = ctk.CTkFrame(self, corner_radius=12)
-        frame_ram.pack(pady=10, padx=25, fill="x")
-
+        frame_ram = make_panel(self)
+        frame_ram.pack(pady=8, padx=22, fill="x")
         header_ram = ctk.CTkFrame(frame_ram, fg_color="transparent")
-        header_ram.pack(fill="x", padx=15, pady=(15, 5))
-
+        header_ram.pack(fill="x", padx=16, pady=(14, 6))
         ctk.CTkLabel(
-            header_ram, text="Выделяемая память",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold")
+            header_ram,
+            text="Выделяемая память",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=TEXT,
         ).pack(side="left")
-
-        # Крупная "живая" подпись текущего значения — обновляется в реальном времени
         self.ram_value_label = ctk.CTkLabel(
-            header_ram, text=f"{int(self.ram_var.get())} ГБ",
+            header_ram,
+            text=f"{int(self.ram_var.get())} ГБ",
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            text_color=GOLD
+            text_color=GOLD,
         )
         self.ram_value_label.pack(side="right")
 
@@ -195,48 +222,62 @@ class SettingsWindow(ctk.CTkToplevel):
             progress_color=VIOLET,
             button_color=GOLD,
             button_hover_color=GOLD_HOVER,
+            height=10,
         )
-        self.ram_slider.pack(fill="x", padx=15, pady=(0, 5))
-
+        self.ram_slider.pack(fill="x", padx=16, pady=(0, 4))
         ctk.CTkLabel(
-            frame_ram, text=f"Максимум: {self.max_ram} ГБ (75% от общего ОЗУ)",
+            frame_ram,
+            text=f"Максимум: {self.max_ram} ГБ (75% от общего ОЗУ)",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color="gray60"
-        ).pack(padx=15, pady=(0, 15), anchor="w")
+            text_color=TEXT_MUTED,
+        ).pack(padx=16, pady=(0, 14), anchor="w")
 
-        # ---------- Блок папки ----------
-        frame_dir_outer = ctk.CTkFrame(self, corner_radius=12)
-        frame_dir_outer.pack(pady=10, padx=25, fill="x")
-
+        frame_dir = make_panel(self)
+        frame_dir.pack(pady=8, padx=22, fill="x")
         ctk.CTkLabel(
-            frame_dir_outer, text="Папка с игрой",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold")
-        ).pack(anchor="w", padx=15, pady=(15, 5))
+            frame_dir,
+            text="Папка с игрой",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=TEXT,
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+        entry_row = ctk.CTkFrame(frame_dir, fg_color="transparent")
+        entry_row.pack(padx=16, pady=(0, 14), fill="x")
+        ctk.CTkEntry(entry_row, textvariable=self.dir_var, fg_color=BG_PANEL, border_color=BORDER, height=38).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(
+            entry_row,
+            text="Обзор",
+            width=82,
+            height=38,
+            command=self.browse_dir,
+            fg_color=VIOLET,
+            hover_color=VIOLET_HOVER,
+        ).pack(side="right")
 
-        frame_dir = ctk.CTkFrame(frame_dir_outer, fg_color="transparent")
-        frame_dir.pack(pady=(0, 15), padx=15, fill="x")
-        ctk.CTkEntry(frame_dir, textvariable=self.dir_var).pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(frame_dir, text="Обзор", width=80, command=self.browse_dir,
-                      fg_color=VIOLET, hover_color=VIOLET_HOVER).pack(side="right")
-
-        # ---------- Опасная зона ----------
-        frame_danger = ctk.CTkFrame(self, corner_radius=12)
-        frame_danger.pack(pady=10, padx=25, fill="x")
-
+        frame_danger = make_panel(self, fg_color=BG_CARD_ALT)
+        frame_danger.pack(pady=8, padx=22, fill="x")
         btn_reinstall = ctk.CTkButton(
-            frame_danger, text="🗑  Переустановить игру", command=self.reinstall,
-            fg_color=DANGER, hover_color=DANGER_HOVER,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13)
+            frame_danger,
+            text="🗑  Переустановить игру",
+            command=self.reinstall,
+            fg_color=DANGER,
+            hover_color=DANGER_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            height=40,
         )
-        btn_reinstall.pack(pady=15, padx=15, fill="x")
+        btn_reinstall.pack(pady=14, padx=16, fill="x")
         ToolTip(btn_reinstall, "Удаляет все файлы игры (моды, ядро, конфиги)\nи переустанавливает заново при следующем запуске.")
 
-        # ---------- Сохранить ----------
         ctk.CTkButton(
-            self, text="Сохранить настройки", command=self.save_settings,
-            height=42, fg_color=GOLD, hover_color=GOLD_HOVER, text_color=GOLD_TEXT,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold")
-        ).pack(pady=20, padx=25, fill="x")
+            self,
+            text="Сохранить настройки",
+            command=self.save_settings,
+            height=44,
+            fg_color=GOLD,
+            hover_color=GOLD_HOVER,
+            text_color=GOLD_TEXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            corner_radius=12,
+        ).pack(pady=(14, 20), padx=22, fill="x")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -293,8 +334,9 @@ class Launcher(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("520x680")
+        self.geometry("560x760")
         self.resizable(False, False)
+        self.configure(fg_color=BG)
 
         Path(CONFIG_DIR).mkdir(parents=True, exist_ok=True)
         self.config = self.load_config()
@@ -338,30 +380,45 @@ class Launcher(ctk.CTk):
         self.log(f"Выделено памяти: {self.ram_var.get()} ГБ (максимум {self.max_ram_gb} ГБ)")
 
     def create_widgets(self):
-        # Двухцветное название: фиолетовый + латунно-золотой
-        frame_title = ctk.CTkFrame(self, fg_color="transparent")
-        frame_title.pack(pady=(22, 4))
+        hero = make_panel(self, height=140)
+        hero.pack(padx=24, pady=(24, 16), fill="x")
+        hero_top = ctk.CTkFrame(hero, fg_color="transparent")
+        hero_top.pack(fill="x", padx=20, pady=(18, 8))
         ctk.CTkLabel(
-            frame_title, text="Endy",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
-            text_color=VIOLET
+            hero_top,
+            text="Endy",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=30, weight="bold"),
+            text_color=VIOLET,
         ).pack(side="left")
         ctk.CTkLabel(
-            frame_title, text="Launcher",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
-            text_color=GOLD
-        ).pack(side="left")
+            hero_top,
+            text="Launcher",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=30, weight="bold"),
+            text_color=GOLD,
+        ).pack(side="left", padx=(4, 0))
+        ctk.CTkLabel(
+            hero_top,
+            text="⚡ Быстрый старт",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=SUCCESS,
+        ).pack(side="right")
+        ctk.CTkLabel(
+            hero,
+            text="Современный запуск Minecraft с автоматической установкой, серверным входом и аккуратно оформленным интерфейсом.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=TEXT_MUTED,
+            justify="left",
+            wraplength=500,
+        ).pack(anchor="w", padx=20, pady=(0, 18))
 
-        ctk.CTkFrame(self, height=2, fg_color=GOLD).pack(fill="x", padx=30, pady=(0, 15))
+        card = make_panel(self)
+        card.pack(padx=24, fill="x")
 
-        card = ctk.CTkFrame(self, corner_radius=14)
-        card.pack(padx=30, fill="x")
+        ctk.CTkLabel(card, text="Никнейм", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"), text_color=TEXT).pack(anchor="w", padx=20, pady=(18, 6))
+        ctk.CTkEntry(card, textvariable=self.nickname_var, height=38, fg_color=BG_PANEL, border_color=BORDER).pack(padx=20, fill="x")
 
-        ctk.CTkLabel(card, text="Никнейм", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(18, 4))
-        ctk.CTkEntry(card, textvariable=self.nickname_var, height=36).pack(padx=20, fill="x")
-
-        ctk.CTkLabel(card, text="Пароль", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(14, 4))
-        ctk.CTkEntry(card, textvariable=self.password_var, show="*", height=36).pack(padx=20, fill="x")
+        ctk.CTkLabel(card, text="Пароль", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"), text_color=TEXT).pack(anchor="w", padx=20, pady=(14, 6))
+        ctk.CTkEntry(card, textvariable=self.password_var, show="*", height=38, fg_color=BG_PANEL, border_color=BORDER).pack(padx=20, fill="x")
 
         ctk.CTkLabel(
             card,
@@ -369,40 +426,69 @@ class Launcher(ctk.CTk):
                   "просто придумайте любой пароль и запомните его: в следующий раз вводите тот же, "
                   "чтобы никто другой не смог зайти под вашим ником."),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color="gray60",
+            text_color=TEXT_MUTED,
             justify="left",
-            wraplength=440
-        ).pack(anchor="w", padx=20, pady=(6, 0))
+            wraplength=480,
+        ).pack(anchor="w", padx=20, pady=(8, 0))
 
-        ctk.CTkLabel(card, text="Папка с игрой", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold")).pack(anchor="w", padx=20, pady=(14, 4))
+        ctk.CTkLabel(card, text="Папка с игрой", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"), text_color=TEXT).pack(anchor="w", padx=20, pady=(14, 6))
         frame_dir = ctk.CTkFrame(card, fg_color="transparent")
         frame_dir.pack(pady=(0, 18), padx=20, fill="x")
-        ctk.CTkEntry(frame_dir, textvariable=self.dir_var, height=36).pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(frame_dir, text="Обзор", width=80, height=36, command=self.choose_directory,
-                      fg_color=VIOLET, hover_color=VIOLET_HOVER).pack(side="right", padx=(10, 0))
+        ctk.CTkEntry(frame_dir, textvariable=self.dir_var, height=38, fg_color=BG_PANEL, border_color=BORDER).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            frame_dir,
+            text="Обзор",
+            width=82,
+            height=38,
+            command=self.choose_directory,
+            fg_color=VIOLET,
+            hover_color=VIOLET_HOVER,
+        ).pack(side="right", padx=(10, 0))
 
-        self.progress = ctk.CTkProgressBar(self, width=420, progress_color=GOLD)
-        self.progress.pack(pady=(20, 5), padx=30)
+        self.progress = ctk.CTkProgressBar(self, width=480, height=8, progress_color=GOLD, bg_color=BG_PANEL, corner_radius=999)
+        self.progress.pack(pady=(18, 6), padx=24)
         self.progress.set(0)
 
         frame_buttons = ctk.CTkFrame(self, fg_color="transparent")
-        frame_buttons.pack(pady=15, fill="x", padx=30)
+        frame_buttons.pack(pady=12, fill="x", padx=24)
         self.launch_btn = ctk.CTkButton(
-            frame_buttons, text="ИГРАТЬ", command=self.on_launch,
-            height=44, font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            width=180, fg_color=GOLD, hover_color=GOLD_HOVER, text_color=GOLD_TEXT, corner_radius=10
+            frame_buttons,
+            text="ИГРАТЬ",
+            command=self.on_launch,
+            height=46,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            width=185,
+            fg_color=GOLD,
+            hover_color=GOLD_HOVER,
+            text_color=GOLD_TEXT,
+            corner_radius=12,
         )
-        self.launch_btn.pack(side="left", padx=5)
+        self.launch_btn.pack(side="left")
         ctk.CTkButton(
-            frame_buttons, text="Настройки", command=self.open_settings,
-            height=44, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            width=140, fg_color=VIOLET, hover_color=VIOLET_HOVER, corner_radius=10
-        ).pack(side="right", padx=5)
+            frame_buttons,
+            text="Настройки",
+            command=self.open_settings,
+            height=46,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            width=145,
+            fg_color=VIOLET,
+            hover_color=VIOLET_HOVER,
+            corner_radius=12,
+        ).pack(side="right")
 
-        ctk.CTkLabel(self, text="Лог", font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), text_color="gray60").pack(anchor="w", padx=32)
-        self.log_box = ctk.CTkTextbox(self, height=170, state="disabled", corner_radius=10,
-                                       font=ctk.CTkFont(family="Consolas", size=12))
-        self.log_box.pack(pady=(4, 15), padx=30, fill="both")
+        ctk.CTkLabel(self, text="Лог", font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), text_color=TEXT_MUTED).pack(anchor="w", padx=28, pady=(10, 4))
+        self.log_box = ctk.CTkTextbox(
+            self,
+            height=170,
+            state="disabled",
+            corner_radius=12,
+            fg_color=BG_PANEL,
+            border_color=BORDER,
+            border_width=1,
+            font=ctk.CTkFont(family="Consolas", size=12),
+            text_color=TEXT,
+        )
+        self.log_box.pack(pady=(4, 18), padx=24, fill="both")
 
     def log(self, message):
         # Ссылки не должны попадать в видимый лог — заменяем их на общую фразу.
