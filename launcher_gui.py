@@ -479,24 +479,26 @@ class Launcher(ctk.CTk):
         ctk.CTkLabel(self, text="Лог", font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), text_color=TEXT_MUTED).pack(anchor="w", padx=28, pady=(10, 4))
         self.log_box = ctk.CTkTextbox(
             self,
-            height=170,
-            state="disabled",
+            height=52,
+            state="normal",
             corner_radius=12,
             fg_color=BG_PANEL,
             border_color=BORDER,
             border_width=1,
-            font=ctk.CTkFont(family="Consolas", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=TEXT,
         )
-        self.log_box.pack(pady=(4, 18), padx=24, fill="both")
+        self.log_box.pack(pady=(4, 18), padx=24, fill="x")
+        self.log_box.insert("end", "Ожидание запуска...")
+        self.log_box.configure(state="disabled")
 
     def log(self, message):
         # Ссылки не должны попадать в видимый лог — заменяем их на общую фразу.
         safe_message = strip_urls(message)
         timestamped = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {safe_message}"
         self.log_box.configure(state="normal")
-        self.log_box.insert("end", timestamped + "\n")
-        self.log_box.see("end")
+        self.log_box.delete("1.0", "end")
+        self.log_box.insert("end", safe_message)
         self.log_box.configure(state="disabled")
         self.update_idletasks()
         print(timestamped)
@@ -570,9 +572,7 @@ class Launcher(ctk.CTk):
 
         self.launch_btn.configure(state="disabled", text="ЗАПУСК...")
         self.progress.set(0)
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.configure(state="disabled")
+        self.log("Подготовка запуска...")
 
         thread = threading.Thread(target=self.launch_game, args=(nickname, directory))
         thread.daemon = True
