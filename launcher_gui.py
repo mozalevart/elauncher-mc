@@ -542,13 +542,21 @@ class Launcher(ctk.CTk):
         # Ссылки не должны попадать в видимый лог — заменяем их на общую фразу.
         safe_message = strip_urls(message)
         timestamped = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {safe_message}"
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.insert("end", safe_message)
-        self.log_box.configure(state="disabled")
-        self.update_idletasks()
-        print(timestamped)
-        sys.stdout.flush()
+        if getattr(self, "log_box", None) is not None:
+            self.log_box.configure(state="normal")
+            self.log_box.delete("1.0", "end")
+            self.log_box.insert("end", safe_message)
+            self.log_box.configure(state="disabled")
+            self.update_idletasks()
+
+        out = getattr(sys, "stdout", None)
+        if out is not None:
+            try:
+                print(timestamped, file=out)
+                out.flush()
+            except Exception:
+                pass
+
         try:
             with open(self.log_file_path, "a", encoding="utf-8") as f:
                 f.write(timestamped + "\n")
