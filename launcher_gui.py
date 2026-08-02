@@ -12,7 +12,13 @@ import zipfile
 import re
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, Toplevel, Label, IntVar, StringVar
+from tkinter import filedialog, messagebox, Toplevel, Label, IntVar, StringVar, PhotoImage
+
+
+try:
+    import PIL.Image as Image
+except Exception:  # pragma: no cover
+    Image = None
 
 # Set a default timeout for all requests used by this launcher and by minecraft_launcher_lib.
 # This prevents hanging downloads when a server stalls or a connection drops.
@@ -47,7 +53,45 @@ DEFAULT_GAME_DIR = os.path.join(CONFIG_DIR, "game")
 # Лог теперь всегда хранится в папке .endylauncher, а не в папке запуска игры,
 # и перезаписывается заново при каждом старте лаунчера.
 LOG_PATH = os.path.join(CONFIG_DIR, "launcher-log.txt")
+BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
+ICON_PATH = ASSETS_DIR / "icon.ico"
+ICON_PNG_PATH = ASSETS_DIR / "icon.png"
 # ------------------------------
+
+
+def get_resource_path(relative_path):
+    base_path = getattr(sys, "_MEIPASS", None)
+    if base_path:
+        return str(Path(base_path) / relative_path)
+    return str(Path(BASE_DIR) / relative_path)
+
+
+def set_window_icon(window):
+    candidates = [
+        get_resource_path("assets/icon.ico"),
+        str(ICON_PATH),
+        get_resource_path("assets/icon.png"),
+        str(ICON_PNG_PATH),
+    ]
+    icon_path = None
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            icon_path = candidate
+            break
+
+    if not icon_path:
+        return
+
+    try:
+        if str(icon_path).lower().endswith(".ico"):
+            window.iconbitmap(default=str(icon_path))
+            window.wm_iconbitmap(str(icon_path))
+        elif Image is not None:
+            img = PhotoImage(file=str(icon_path))
+            window.wm_iconphoto(True, img)
+    except Exception:
+        pass
 
 # ---------- ЦВЕТОВАЯ СХЕМА: тёмная магия + техно-акценты ----------
 BG = "#050816"
@@ -368,6 +412,7 @@ class Launcher(ctk.CTk):
         self.geometry("560x760")
         self.resizable(False, False)
         self.configure(fg_color=BG)
+        set_window_icon(self)
 
         Path(CONFIG_DIR).mkdir(parents=True, exist_ok=True)
         self.config = self.load_config()
