@@ -1,5 +1,5 @@
 {
   "version": "0.1.0",
   "download_url": "https://github.com/mozalevart/elauncher-mc/releases/download/v0.1.0/EndyLauncher.exe",
-  "notes": "Заглушка для проверки механизма обновлений. Замените ссылку на релиз, когда будет готов новый EXE."
+  "notes": "Первая версия Endy Launcher — стабильный стартовый релиз с удобным интерфейсом, базовой настройкой запуска и поддержкой обновлений."
 }
