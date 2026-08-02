@@ -45,7 +45,7 @@ socket.setdefaulttimeout(60)
 
 # ---------- НАСТРОЙКИ ----------
 APP_NAME = "EndyLauncher"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 MANIFEST_URL = "https://raw.githubusercontent.com/mozalevart/client-em/refs/heads/main/manifest.json"
 LAUNCHER_MANIFEST_URL = "https://github.com/mozalevart/elauncher-mc/raw/refs/heads/main/launcher-manifest.json"
 SERVERS_URL = "https://github.com/mozalevart/client-em/raw/refs/heads/main/servers.dat"
@@ -85,13 +85,26 @@ def set_window_icon(window):
     if not icon_path:
         return
 
+    def apply_icon():
+        try:
+            if str(icon_path).lower().endswith(".ico"):
+                window.iconbitmap(default=str(icon_path))
+                window.wm_iconbitmap(str(icon_path))
+                try:
+                    window.call("wm", "iconbitmap", str(icon_path))
+                except Exception:
+                    pass
+            elif Image is not None:
+                img = PhotoImage(file=str(icon_path))
+                window.wm_iconphoto(True, img)
+        except Exception:
+            pass
+
     try:
-        if str(icon_path).lower().endswith(".ico"):
-            window.iconbitmap(default=str(icon_path))
-            window.wm_iconbitmap(str(icon_path))
-        elif Image is not None:
-            img = PhotoImage(file=str(icon_path))
-            window.wm_iconphoto(True, img)
+        apply_icon()
+        window.update_idletasks()
+        window.after(200, apply_icon)
+        window.after(800, apply_icon)
     except Exception:
         pass
 
