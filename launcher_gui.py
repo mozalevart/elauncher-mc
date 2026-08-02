@@ -45,7 +45,9 @@ socket.setdefaulttimeout(60)
 
 # ---------- НАСТРОЙКИ ----------
 APP_NAME = "EndyLauncher"
+APP_VERSION = "0.1.0"
 MANIFEST_URL = "https://raw.githubusercontent.com/mozalevart/client-em/refs/heads/main/manifest.json"
+LAUNCHER_MANIFEST_URL = "https://github.com/mozalevart/elauncher-mc/raw/refs/heads/main/launcher-manifest.json"
 SERVERS_URL = "https://github.com/mozalevart/client-em/raw/refs/heads/main/servers.dat"
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA", ""), ".endylauncher")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "launcher-config.json")
@@ -673,6 +675,11 @@ class Launcher(ctk.CTk):
         self.progress.set(0)
         self.log("Подготовка запуска...")
 
+        if not self.check_for_launcher_update():
+            self.launch_btn.configure(state="normal", text="ИГРАТЬ")
+            self.progress.set(0)
+            return
+
         thread = threading.Thread(target=self.launch_game, args=(nickname, directory))
         thread.daemon = True
         self.launch_thread = thread
@@ -921,6 +928,129 @@ class Launcher(ctk.CTk):
             self.log("Список серверов обновлён.")
         except Exception as e:
             self.log(f"Не удалось обновить список серверов: {e}")
+
+    def get_launcher_binary_path(self):
+        if getattr(sys, "frozen", False) and sys.executable:
+            return Path(sys.executable).resolve()
+        return Path(__file__).resolve()
+
+    def parse_version(self, version):
+        version = str(version or "").strip().lstrip("v")
+        parts = re.findall(r"\d+", version)
+        return tuple(int(part) for part in parts) if parts else (0,)
+
+    def is_newer_version(self, latest_version, current_version):
+        return self.parse_version(latest_version) > self.parse_version(current_version)
+
+    def get_launcher_update_manifest(self):
+        self.log("Загрузка манифеста обновлений лаунчера...")
+        try:
+            response = requests.get(LAUNCHER_MANIFEST_URL, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict):
+                return data
+        except Exception as exc:
+            self.log(f"Не удалось загрузить удалённый манифест обновлений: {exc}")
+
+        local_manifest_path = BASE_DIR / "launcher-manifest.json"
+        if local_manifest_path.exists():
+            try:
+                with open(local_manifest_path, "r", encoding="utf-8") as handle:
+                    data = json.load(handle)
+                if isinstance(data, dict):
+                    self.log("Используется локальный манифест обновлений лаунчера.")
+                    return data
+            except Exception as exc:
+                self.log(f"Не удалось прочитать локальный манифест обновлений: {exc}")
+
+        raise RuntimeError("Не удалось получить манифест обновлений лаунчера")
+
+    def download_update_package(self, download_url, target_dir):
+        target_dir.mkdir(parents=True, exist_ok=True)
+        download_name = Path(download_url.split("?", 1)[0]).name or "EndyLauncher.exe"
+        target_path = target_dir / download_name
+        self.log(f"Скачивание обновления: {download_url}")
+        response = requests.get(download_url, stream=True, timeout=120)
+        response.raise_for_status()
+        with open(target_path, "wb") as handle:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    handle.write(chunk)
+        if target_path.suffix.lower() == ".zip":
+            with zipfile.ZipFile(target_path, "r") as archive:
+                exe_candidates = [info for info in archive.infolist() if info.filename.lower().endswith(".exe")]
+                if not exe_candidates:
+                    raise RuntimeError("В архиве обновления не найден exe-файл")
+                archive.extract(exe_candidates[0].filename, target_dir)
+                extracted_path = target_dir / exe_candidates[0].filename
+                final_path = target_dir / "EndyLauncher.exe"
+                if extracted_path.exists():
+                    if final_path.exists():
+                        final_path.unlink()
+                    extracted_path.rename(final_path)
+            if target_path.exists():
+                target_path.unlink()
+            return final_path
+        return target_path
+
+    def launch_updater(self, new_launcher_path):
+        launcher_path = self.get_launcher_binary_path()
+        updater_dir = launcher_path.parent / "launcher-update"
+        updater_dir.mkdir(parents=True, exist_ok=True)
+        updater_script = updater_dir / "update.cmd"
+        script_content = f'''@echo off
+setlocal
+set "target={launcher_path}"
+set "new_file={new_launcher_path}"
+set "pid={os.getpid()}"
+:waitloop
+tasklist /fi "PID eq %pid%" 2>nul | find /i "%pid%" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto waitloop
+)
+copy /Y "%new_file%" "%target%" >nul 2>&1
+if errorlevel 1 (
+    move /Y "%new_file%" "%target%" >nul 2>&1
+)
+if exist "%target%" start "" "%target%"
+rmdir /s /q "{updater_dir}" >nul 2>&1
+'''
+        updater_script.write_text(script_content, encoding="utf-8")
+        subprocess.Popen(["cmd.exe", "/c", str(updater_script)], creationflags=0)
+        return True
+
+    def check_for_launcher_update(self):
+        try:
+            self.log("Проверка обновлений лаунчера...")
+            manifest = self.get_launcher_update_manifest()
+            latest_version = str(manifest.get("version") or "").strip().lstrip("v")
+            if not latest_version:
+                self.log("В манифесте обновлений нет версии.")
+                return True
+
+            if not self.is_newer_version(latest_version, APP_VERSION):
+                self.log(f"Лаунчер актуален: {APP_VERSION}")
+                return True
+
+            download_url = str(manifest.get("download_url") or "").strip()
+            if not download_url:
+                self.log("В манифесте обновлений нет ссылки для скачивания.")
+                return True
+
+            self.log(f"Обнаружена новая версия лаунчера: {latest_version}")
+            update_dir = self.get_launcher_binary_path().parent / "launcher-update"
+            new_launcher_path = self.download_update_package(download_url, update_dir)
+            if self.launch_updater(new_launcher_path):
+                self.log("Обновление запущено. Лаунчер будет перезапущен после завершения.")
+                raise SystemExit(0)
+            return False
+        except SystemExit:
+            raise
+        except Exception as e:
+            self.log(f"Не удалось проверить обновления лаунчера: {e}")
+            return True
 
     def write_default_language(self, directory):
         """Создаёт options.txt с русским языком, но только если файла ещё нет —
