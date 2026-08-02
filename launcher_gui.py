@@ -69,7 +69,7 @@ SUCCESS = "#56E8B2"
 FONT_FAMILY = "Segoe UI"
 # ------------------------------
 
-# Ссылки не должны попадать в видимый лог — только общие фразы.
+# В видимый лог попадают только общие фразы.
 _URL_PATTERN = re.compile(r"https?://\S+")
 
 def strip_urls(text):
@@ -332,12 +332,12 @@ class SettingsWindow(ctk.CTkToplevel):
         if messagebox.askyesno("Переустановка", "Вы уверены, что хотите удалить все файлы игры и переустановить их заново?\n"
                                                 "Это удалит моды, ядро и конфиги (но сохранит ваши настройки лаунчера)."):
             directory = self.launcher.dir_var.get()
-            for folder in ["versions", "mods", "config", "defaultconfigs", "kubejs", "resourcepacks", "shaderpacks"]:
+            for folder in ["versions", "mods", "config", "defaultconfigs", "kubejs", "resourcepacks", "shaderpacks", "java-runtime-delta"]:
                 folder_path = os.path.join(directory, folder)
                 if os.path.exists(folder_path):
                     shutil.rmtree(folder_path)
                     self.launcher.log(f"Удалена папка: {folder}")
-            for ver_file in ["minecraft_version.txt", "core_version.txt", "mods_version.txt", "config_version.txt"]:
+            for ver_file in ["minecraft_version.txt", "core_version.txt", "mods_version.txt", "config_version.txt", "java_version.txt"]:
                 ver_path = os.path.join(directory, ver_file)
                 if os.path.exists(ver_path):
                     os.remove(ver_path)
@@ -680,6 +680,12 @@ class Launcher(ctk.CTk):
         elif component_type == "config":
             pass
 
+        elif component_type == "java":
+            java_dir = os.path.join(directory, "java-runtime-delta")
+            if os.path.exists(java_dir):
+                self.log("Удаление встроенной Java...")
+                shutil.rmtree(java_dir)
+
     def get_installation_manifest_path(self, directory):
         safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', directory).strip("._") or "default"
         return os.path.join(CONFIG_DIR, f"installation-manifest-{safe_name}.json")
@@ -706,6 +712,19 @@ class Launcher(ctk.CTk):
                 json.dump(manifest, f, indent=2, ensure_ascii=False)
         except Exception as e:
             self.log(f"Не удалось сохранить манифест установки: {e}")
+
+    def component_files_are_valid(self, directory, files):
+        for file_entry in files or []:
+            rel_path = file_entry.get("path")
+            if not rel_path:
+                continue
+            full_path = os.path.join(directory, rel_path)
+            if not os.path.exists(full_path) or not os.path.isfile(full_path):
+                return False
+            expected_size = file_entry.get("size")
+            if expected_size is not None and os.path.getsize(full_path) != expected_size:
+                return False
+        return True
 
     def collect_installation_problems(self, directory, manifest):
         total_files = 0
@@ -758,6 +777,17 @@ class Launcher(ctk.CTk):
             remote_component = remote_components.get(component_name, {})
             url = remote_component.get("url")
             version = remote_component.get("version")
+            if component_name == "java":
+                if not url:
+                    continue
+                self.log(f"Восстановление компонента {component_name}...")
+                if remote_component.get("clean", True):
+                    self.clean_component(directory, "java")
+                component_files = self.download_and_extract_archive(url, directory, f"{component_name}_temp.zip", component_name)
+                manifest_state["components"][component_name] = {"files": component_files}
+                recovered_any = True
+                continue
+
             if not url or not version:
                 continue
 
@@ -960,6 +990,29 @@ class Launcher(ctk.CTk):
                     else:
                         self.log("Конфиги актуальны.")
 
+            # Java как отдельный компонент: скачиваем только при первой установке,
+            # переустановке или если файлы были удалены/повреждены.
+            if "java" in components:
+                java_comp = components["java"]
+                url = java_comp.get("url")
+                clean = java_comp.get("clean", True)
+                if url:
+                    java_dir = os.path.join(directory, "java-runtime-delta")
+                    java_state = manifest_state.get("components", {}).get("java", {})
+                    java_files = java_state.get("files", [])
+                    needs_java_install = (not os.path.exists(java_dir)) or not java_files or not self.component_files_are_valid(directory, java_files)
+                    if needs_java_install:
+                        self.log("Java не установлена или повреждена. Устанавливаю отдельный компонент Java...")
+                        if clean:
+                            self.clean_component(directory, "java")
+                        java_files = self.download_and_extract_archive(url, directory, "java_temp.zip", "java")
+                        manifest_state["components"]["java"] = {"files": java_files}
+                        self.log("Java установлена.")
+                    else:
+                        self.log("Java актуальна.")
+                else:
+                    self.log("Компонент java не содержит ссылки для загрузки; пропускаю.")
+
             # Поиск NeoForge
             versions_dir = os.path.join(directory, "versions")
             neoforge_id = None
@@ -992,13 +1045,11 @@ class Launcher(ctk.CTk):
                 else:
                     self.log("Пользователь отклонил автоматическое восстановление. Продолжаю запуск с предупреждением.")
 
-            # Проверка Java — теперь ПОСЛЕ установки core, когда java-runtime-delta
-            # уже должна быть на месте (раньше проверка шла до скачивания core.zip,
-            # поэтому всегда падала на первой установке)
+            # Проверка Java — теперь отдельный компонент из манифеста.
             if not os.path.exists(java_path):
                 if not self.check_java_version():
                     msg = ("Не найдена встроенная Java и системная Java версии 21+.\n"
-                           "Убедитесь, что core.zip содержит папку java-runtime-delta, "
+                           "Убедитесь, что в манифесте есть компонент java с архивом, "
                            "либо установите Java 21 вручную.")
                     self.log(f"ОШИБКА: {msg}")
                     messagebox.showerror("Ошибка", msg)
