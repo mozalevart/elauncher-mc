@@ -352,8 +352,11 @@ class SettingsWindow(ctk.CTkToplevel):
             wraplength=360,
         ).pack(padx=16, pady=(0, 14), anchor="w")
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=22, pady=(8, 12))
+
         ctk.CTkButton(
-            self,
+            footer,
             text="Сохранить",
             command=self.save_settings,
             height=34,
@@ -363,7 +366,14 @@ class SettingsWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             corner_radius=10,
             width=130,
-        ).pack(anchor="e", padx=22, pady=(8, 12))
+        ).pack(side="right")
+
+        ctk.CTkLabel(
+            footer,
+            text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color="#5B6784",
+        ).pack(side="left", pady=(6, 0))
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -1057,10 +1067,17 @@ rmdir /s /q "{updater_dir}" >nul 2>&1
             new_launcher_path = self.download_update_package(download_url, update_dir)
             if self.launch_updater(new_launcher_path):
                 self.log("Обновление запущено. Лаунчер будет перезапущен после завершения.")
-                raise SystemExit(0)
+                self.update_idletasks()
+                # ВАЖНО: это вызывается из tkinter-колбэка (нажатие кнопки
+                # "Играть"). Если тут просто raise SystemExit(0), Tkinter
+                # перехватывает исключение внутри своего CallWrapper
+                # (report_callback_exception) и НЕ даёт mainloop() завершиться —
+                # процесс продолжает жить. А update.cmd в этот момент ждёт
+                # через tasklist, пока наш PID исчезнет, и ждёт вечно, потому
+                # что мы физически не закрылись. os._exit() убивает процесс
+                # на уровне ОС сразу, минуя любую обработку исключений.
+                os._exit(0)
             return False
-        except SystemExit:
-            raise
         except Exception as e:
             self.log(f"Не удалось проверить обновления лаунчера: {e}")
             return True
