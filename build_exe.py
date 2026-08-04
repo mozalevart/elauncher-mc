@@ -36,18 +36,25 @@ def build_exe():
         "--onefile",
         "--windowed",
         "--name",
-        "EndyLauncher",
+        "launcher",
         "--icon",
         str(icon_path),
         "--add-data",
         data_arg,
-        "launcher_gui.py",
+        "launcher.py",
     ]
 
     print("Сборка EXE...")
     print("Команда:", " ".join(command))
     subprocess.run(command, cwd=PROJECT_DIR, check=True)
-    print("\nГотово. EXE находится в папке dist/.")
+    print("\nГотово. launcher.exe находится в папке dist/.")
+    print(
+        "Это ВНУТРЕННИЙ exe — его не публикуют как есть для скачивания. Он "
+        "загружается автоматически через bootstrap (EndyLauncher.exe, "
+        "см. bootstrap/build_bootstrap.py) и кладётся в %APPDATA%\\.endylauncher\\bin\\. "
+        "Для релиза на GitHub нужно приложить именно этот launcher.exe и "
+        "обновить launcher-manifest.json (version + download_url)."
+    )
     print(
         "Если в Проводнике иконка всё ещё не появилась — это Windows показывает "
         "закэшированную старую иконку, а не саму сборку. Помогает: "

@@ -45,9 +45,7 @@ socket.setdefaulttimeout(60)
 
 # ---------- НАСТРОЙКИ ----------
 APP_NAME = "EndyLauncher"
-APP_VERSION = "0.1.2"
 MANIFEST_URL = "https://raw.githubusercontent.com/mozalevart/client-em/refs/heads/main/manifest.json"
-LAUNCHER_MANIFEST_URL = "https://github.com/mozalevart/elauncher-mc/raw/refs/heads/main/launcher-manifest.json"
 SERVERS_URL = "https://github.com/mozalevart/client-em/raw/refs/heads/main/servers.dat"
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA", ""), ".endylauncher")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "launcher-config.json")
@@ -67,6 +65,24 @@ def get_resource_path(relative_path):
     if base_path:
         return str(Path(base_path) / relative_path)
     return str(Path(BASE_DIR) / relative_path)
+
+
+def get_installed_version():
+    """Версию теперь ставит и отслеживает bootstrap (EndyLauncher.exe) — после
+    установки/обновления он пишет launcher-version.txt рядом с этим exe. Здесь
+    файл только читается, исключительно для показа в настройках; сам launcher
+    больше ничего не сверяет и никого никуда не обновляет."""
+    try:
+        if getattr(sys, "frozen", False) and sys.executable:
+            base = Path(sys.executable).resolve().parent
+        else:
+            base = Path(__file__).resolve().parent
+        version_file = base / "launcher-version.txt"
+        if version_file.exists():
+            return version_file.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return ""
 
 
 def set_window_icon(window):
@@ -368,9 +384,10 @@ class SettingsWindow(ctk.CTkToplevel):
             width=130,
         ).pack(side="right")
 
+        installed_version = get_installed_version()
         ctk.CTkLabel(
             footer,
-            text=f"v{APP_VERSION}",
+            text=f"v{installed_version}" if installed_version else "",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color="#5B6784",
         ).pack(side="left", pady=(6, 0))
@@ -698,11 +715,6 @@ class Launcher(ctk.CTk):
         self.progress.set(0)
         self.log("Подготовка запуска...")
 
-        if not self.check_for_launcher_update():
-            self.launch_btn.configure(state="normal", text="ИГРАТЬ")
-            self.progress.set(0)
-            return
-
         thread = threading.Thread(target=self.launch_game, args=(nickname, directory))
         thread.daemon = True
         self.launch_thread = thread
@@ -951,217 +963,6 @@ class Launcher(ctk.CTk):
             self.log("Список серверов обновлён.")
         except Exception as e:
             self.log(f"Не удалось обновить список серверов: {e}")
-
-    def get_launcher_binary_path(self):
-        if getattr(sys, "frozen", False) and sys.executable:
-            return Path(sys.executable).resolve()
-        return Path(__file__).resolve()
-
-    def parse_version(self, version):
-        version = str(version or "").strip().lstrip("v")
-        parts = re.findall(r"\d+", version)
-        return tuple(int(part) for part in parts) if parts else (0,)
-
-    def is_newer_version(self, latest_version, current_version):
-        return self.parse_version(latest_version) > self.parse_version(current_version)
-
-    def get_launcher_update_manifest(self):
-        self.log("Загрузка манифеста обновлений лаунчера...")
-        try:
-            response = requests.get(LAUNCHER_MANIFEST_URL, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            if isinstance(data, dict):
-                return data
-        except Exception as exc:
-            self.log(f"Не удалось загрузить удалённый манифест обновлений: {exc}")
-
-        local_manifest_path = self.get_launcher_binary_path().parent / "launcher-manifest.json"
-        if local_manifest_path.exists():
-            try:
-                with open(local_manifest_path, "r", encoding="utf-8") as handle:
-                    data = json.load(handle)
-                if isinstance(data, dict):
-                    self.log("Используется локальный манифест обновлений лаунчера.")
-                    return data
-            except Exception as exc:
-                self.log(f"Не удалось прочитать локальный манифест обновлений: {exc}")
-
-        raise RuntimeError("Не удалось получить манифест обновлений лаунчера")
-
-    def _looks_like_valid_windows_exe(self, path, min_size_mb=15):
-        """Грубая, но надёжная проверка на "это точно не мусор": правильная
-        сигнатура PE-файла (MZ...PE) и разумный минимальный размер. Готовая
-        сборка PyInstaller onefile с customtkinter и minecraft_launcher_lib
-        весит десятки мегабайт — если скачанный файл заметно меньше или не
-        похож на exe вообще, это почти наверняка оборванная закачка или
-        битая/неправильная сборка на сервере, и заменять им рабочую версию
-        нельзя."""
-        try:
-            size = path.stat().st_size
-            if size < min_size_mb * 1024 * 1024:
-                self.log(f"Скачанный файл подозрительно маленький ({size // 1024} КБ) — похоже на битую загрузку.")
-                return False
-            with open(path, "rb") as f:
-                header = f.read(2)
-                if header != b"MZ":
-                    self.log("Скачанный файл не похож на исполняемый файл Windows (нет сигнатуры MZ).")
-                    return False
-        except Exception as e:
-            self.log(f"Не удалось проверить целостность скачанного файла: {e}")
-            return False
-        return True
-
-    def download_update_package(self, download_url, target_dir):
-        target_dir.mkdir(parents=True, exist_ok=True)
-        download_name = Path(download_url.split("?", 1)[0]).name or "EndyLauncher.exe"
-        target_path = target_dir / download_name
-        self.log(f"Скачивание обновления: {download_url}")
-        response = requests.get(download_url, stream=True, timeout=120)
-        response.raise_for_status()
-        with open(target_path, "wb") as handle:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    handle.write(chunk)
-        if target_path.suffix.lower() == ".zip":
-            with zipfile.ZipFile(target_path, "r") as archive:
-                exe_candidates = [info for info in archive.infolist() if info.filename.lower().endswith(".exe")]
-                if not exe_candidates:
-                    raise RuntimeError("В архиве обновления не найден exe-файл")
-                archive.extract(exe_candidates[0].filename, target_dir)
-                extracted_path = target_dir / exe_candidates[0].filename
-                final_path = target_dir / "EndyLauncher.exe"
-                if extracted_path.exists():
-                    if final_path.exists():
-                        final_path.unlink()
-                    extracted_path.rename(final_path)
-            if target_path.exists():
-                target_path.unlink()
-            result_path = final_path
-        else:
-            result_path = target_path
-
-        if not self._looks_like_valid_windows_exe(result_path):
-            # Не даём апдейтеру подменить рабочую версию мусором. Убираем
-            # скачанное и явно падаем — вызывающий код это залогирует и
-            # продолжит запуск текущей (рабочей) версии как ни в чём не бывало.
-            try:
-                result_path.unlink()
-            except Exception:
-                pass
-            raise RuntimeError("Скачанный файл обновления не прошёл проверку целостности — обновление отменено")
-
-        return result_path
-
-
-
-    def launch_updater(self, new_launcher_path):
-        launcher_path = self.get_launcher_binary_path()
-        updater_dir = launcher_path.parent / "launcher-update"
-        updater_dir.mkdir(parents=True, exist_ok=True)
-        updater_script = updater_dir / "update.cmd"
-        updater_log = updater_dir / "update-log.txt"
-
-        # Скрипт очистки пишем ОТДЕЛЬНЫМ файлом за пределами updater_dir (в
-        # %TEMP%). Причина: update.cmd не может удалить папку, в которой сам
-        # физически лежит и работает, — Windows держит её занятой, пока
-        # cmd.exe не закроется. Отдельный процесс запускается уже ПОСЛЕ
-        # перезапуска лаунчера и спокойно подчищает всё за update.cmd.
-        temp_dir = Path(os.environ.get("TEMP") or os.environ.get("TMP") or updater_dir.parent)
-        cleanup_script = temp_dir / "endylauncher-cleanup.cmd"
-        cleanup_script.write_text(
-            "@echo off\r\n"
-            "timeout /t 2 /nobreak >nul\r\n"
-            f'rmdir /s /q "{updater_dir}" >nul 2>&1\r\n'
-            'del "%~f0" >nul 2>&1\r\n',
-            encoding="utf-8",
-        )
-
-        script_content = f'''@echo off
-setlocal
-set "target={launcher_path}"
-set "new_file={new_launcher_path}"
-set "pid={os.getpid()}"
-set "log={updater_log}"
-echo [%date% %time%] Обновление запущено, ждём завершения PID %pid% > "%log%"
-:waitloop
-tasklist /fi "PID eq %pid%" 2>nul | find /i "%pid%" >nul
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto waitloop
-)
-echo [%date% %time%] Старый процесс завершён, копирую файл >> "%log%"
-if exist "%target%" copy /Y "%target%" "%target%.bak" >>"%log%" 2>&1
-copy /Y "%new_file%" "%target%" >>"%log%" 2>&1
-if errorlevel 1 (
-    echo [%date% %time%] copy не сработал ^(errorlevel %errorlevel%^), пробую move >> "%log%"
-    move /Y "%new_file%" "%target%" >>"%log%" 2>&1
-)
-if not exist "%target%" (
-    echo [%date% %time%] ОШИБКА: файл лаунчера не найден после обновления. >> "%log%"
-    echo Возможно, не хватает прав на запись в эту папку — попробуйте установить >> "%log%"
-    echo лаунчер вне "Program Files" или запустить от имени администратора. >> "%log%"
-    exit /b 1
-)
-echo [%date% %time%] Успешно, перезапускаю >> "%log%"
-rem Новый onefile-EXE нельзя запускать с унаследованным окружением PyInstaller.
-rem Иначе он повторно использует старую папку _MEI, которую старый bootloader
-rem уже удаляет, что приводит к FileNotFoundError: base_library.zip.
-set "PYINSTALLER_RESET_ENVIRONMENT=1"
-set "_PYI_APPLICATION_HOME_DIR="
-set "_PYI_ARCHIVE_FILE="
-set "_PYI_PARENT_PROCESS_LEVEL="
-set "_PYI_SPLASH_IPC="
-start "" "%target%"
-start "" cmd /c "{cleanup_script}"
-'''
-        updater_script.write_text(script_content, encoding="utf-8")
-
-        # ВАЖНО: creationflags=0 ничего не скрывает. Без CREATE_NO_WINDOW
-        # запуск cmd.exe из --windowed приложения открывает видимое чёрное
-        # окно консоли — пользователь вполне может принять его за ошибку
-        # и закрыть, оборвав обновление на середине.
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen(["cmd.exe", "/c", str(updater_script)], creationflags=creationflags)
-        return True
-
-    def check_for_launcher_update(self):
-        try:
-            self.log("Проверка обновлений лаунчера...")
-            manifest = self.get_launcher_update_manifest()
-            latest_version = str(manifest.get("version") or "").strip().lstrip("v")
-            if not latest_version:
-                self.log("В манифесте обновлений нет версии.")
-                return True
-
-            if not self.is_newer_version(latest_version, APP_VERSION):
-                self.log(f"Лаунчер актуален: {APP_VERSION}")
-                return True
-
-            download_url = str(manifest.get("download_url") or "").strip()
-            if not download_url:
-                self.log("В манифесте обновлений нет ссылки для скачивания.")
-                return True
-
-            self.log(f"Обнаружена новая версия лаунчера: {latest_version}")
-            update_dir = self.get_launcher_binary_path().parent / "launcher-update"
-            new_launcher_path = self.download_update_package(download_url, update_dir)
-            if self.launch_updater(new_launcher_path):
-                self.log("Обновление запущено. Лаунчер будет перезапущен после завершения.")
-                self.update_idletasks()
-                # ВАЖНО: это вызывается из tkinter-колбэка (нажатие кнопки
-                # "Играть"). Если тут просто raise SystemExit(0), Tkinter
-                # перехватывает исключение внутри своего CallWrapper
-                # (report_callback_exception) и НЕ даёт mainloop() завершиться —
-                # процесс продолжает жить. А update.cmd в этот момент ждёт
-                # через tasklist, пока наш PID исчезнет, и ждёт вечно, потому
-                # что мы физически не закрылись. os._exit() убивает процесс
-                # на уровне ОС сразу, минуя любую обработку исключений.
-                os._exit(0)
-            return False
-        except Exception as e:
-            self.log(f"Не удалось проверить обновления лаунчера: {e}")
-            return True
 
     def write_default_language(self, directory):
         """Создаёт options.txt с русским языком, но только если файла ещё нет —
