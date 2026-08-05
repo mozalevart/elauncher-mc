@@ -30,6 +30,8 @@ import requests
 
 # ---------- НАСТРОЙКИ ----------
 APP_NAME = "EndyLauncher"
+# Один общий манифест на всё: игровые компоненты (minecraft/core/java/mods/
+# config) читает launcher.exe, а bootstrap смотрит только на секцию "launcher".
 MANIFEST_URL = "https://raw.githubusercontent.com/mozalevart/client-em/refs/heads/main/manifest.json"
 CONFIG_DIR = Path(os.environ.get("APPDATA", "")) / ".endylauncher"
 BIN_DIR = CONFIG_DIR / "bin"
@@ -206,8 +208,17 @@ class BootstrapApp:
                 )
             return
 
-        remote_version = str(manifest.get("version") or "").strip()
-        download_url = str(manifest.get("download_url") or "").strip()
+        launcher_info = manifest.get("launcher")
+        if not isinstance(launcher_info, dict):
+            if has_local_exe:
+                self.set_status("В манифесте нет данных о лаунчере, запускаю текущую версию...")
+                self.launch_and_exit()
+            else:
+                self.fatal_error("В манифесте отсутствует раздел \"launcher\".")
+            return
+
+        remote_version = str(launcher_info.get("version") or "").strip()
+        download_url = str(launcher_info.get("url") or "").strip()
 
         needs_update = (
             not has_local_exe
