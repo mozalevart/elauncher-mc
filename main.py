@@ -30,7 +30,7 @@ import requests
 
 # ---------- НАСТРОЙКИ ----------
 APP_NAME = "EndyLauncher"
-LAUNCHER_MANIFEST_URL = "https://github.com/mozalevart/elauncher-mc/raw/refs/heads/main/launcher-manifest.json"
+MANIFEST_URL = "https://raw.githubusercontent.com/mozalevart/client-em/refs/heads/main/manifest.json"
 CONFIG_DIR = Path(os.environ.get("APPDATA", "")) / ".endylauncher"
 BIN_DIR = CONFIG_DIR / "bin"
 LAUNCHER_EXE = BIN_DIR / "launcher.exe"
@@ -184,7 +184,7 @@ class BootstrapApp:
         self.set_status("Проверка обновлений...")
         manifest = None
         try:
-            response = requests.get(LAUNCHER_MANIFEST_URL, timeout=REQUEST_TIMEOUT)
+            response = requests.get(MANIFEST_URL, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             if isinstance(data, dict):

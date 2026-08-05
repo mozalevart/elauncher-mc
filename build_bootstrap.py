@@ -6,7 +6,7 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
 # Иконка общая с основным лаунчером — лежит в assets/ на уровень выше.
-ASSETS_DIR = PROJECT_DIR.parent / "assets"
+ASSETS_DIR = PROJECT_DIR / "assets"
 ICO_ICON = ASSETS_DIR / "icon.ico"
 
 
